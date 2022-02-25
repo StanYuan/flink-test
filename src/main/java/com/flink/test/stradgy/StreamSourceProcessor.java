@@ -17,6 +17,4 @@ public interface StreamSourceProcessor<T> {
 
     DataStream<T> processSource(StreamExecutionEnvironment env, ParameterTool parameterTool);
 
-    StreamSourceType applySource();
-
 }

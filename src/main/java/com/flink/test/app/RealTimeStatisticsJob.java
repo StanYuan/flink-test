@@ -3,6 +3,7 @@ package com.flink.test.app;
 import com.alibaba.fastjson.JSONObject;
 import com.flink.test.entity.FlowStatistics;
 import com.flink.test.entity.SMData;
+import com.flink.test.entity.StatisticsCalObj;
 import com.flink.test.entity.StatisticsCalReqInfo;
 import com.flink.test.stradgy.StreamSourceProcessor;
 import com.flink.test.stradgy.impl.StreamFunctionRoute;
@@ -13,6 +14,7 @@ import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
@@ -50,16 +52,13 @@ public class RealTimeStatisticsJob {
 
         //配置flink-kafka-connector源
         Asserts.notNull(propertiesMap.get("stream.source.type"), "stream.source.type");
-        StreamSourceProcessor sourceProcessor = StreamFunctionRoute.sourceProcessor(propertiesMap.get("stream.source.type"));
-        DataStream<String> sourceStream = sourceProcessor.processSource(env, parameterTool);
+        StreamSourceProcessor<StatisticsCalObj> sourceProcessor = StreamFunctionRoute.sourceProcessor(propertiesMap.get("stream.source.type"));
 
+        //flatmap拆分为多个流
+        DataStream<StatisticsCalObj> sourceStream = sourceProcessor.processSource(env, parameterTool);
 
-        DataStream<StatisticsCalReqInfo> sourceMapStream = sourceStream.map(new MapFunction<String, StatisticsCalReqInfo>() {
-            @Override
-            public StatisticsCalReqInfo map(String stream) throws Exception {
-                return JSONObject.parseObject(stream, StatisticsCalReqInfo.class);
-            }
-        });
+        KeyedStream<StatisticsCalObj, String> keyedStream = sourceStream.keyBy(StatisticsCalObj::getCondition);
+
 
 
 //                设置流数据的水印，用于解决数据流的延时和乱序问题，此处设置最大延时时间为2秒

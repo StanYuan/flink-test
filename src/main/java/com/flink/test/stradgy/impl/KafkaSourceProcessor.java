@@ -1,8 +1,12 @@
 package com.flink.test.stradgy.impl;
 
 import com.alibaba.fastjson.JSONObject;
+import com.flink.test.entity.StatisticsCalMeta;
+import com.flink.test.entity.StatisticsCalObj;
+import com.flink.test.entity.StatisticsCalReqInfo;
 import com.flink.test.entity.StreamSourceType;
 import com.flink.test.stradgy.StreamSourceProcessor;
+import org.apache.commons.beanutils.BeanUtils;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
@@ -14,31 +18,32 @@ import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
+
 /**
  * @version v1.0
  * @Description:
  * @Author: dong.yuan
  * @Date: 2022/2/24 15:45
  */
-public class KafkaSourceProcessor implements StreamSourceProcessor<JSONObject> {
-
-    private Logger logger = LoggerFactory.getLogger(KafkaSourceProcessor.class);
+public class KafkaSourceProcessor implements StreamSourceProcessor<StatisticsCalObj> {
 
     @Override
-    public DataStream<JSONObject> processSource(StreamExecutionEnvironment env, ParameterTool parameterTool) {
-        DataStream<JSONObject> sourceStream = env.addSource(new FlinkKafkaConsumer<>(parameterTool.get("kafka.source.topic"), new SimpleStringSchema(), parameterTool.getProperties()))
+    public DataStream<StatisticsCalObj> processSource(StreamExecutionEnvironment env, ParameterTool parameterTool) {
+        return env.addSource(new FlinkKafkaConsumer<>(parameterTool.get("kafka.source.topic"), new SimpleStringSchema(), parameterTool.getProperties()))
                 //转换为SMData对象
-                .map(new MapFunction<String, JSONObject>() {
+                .flatMap(new FlatMapFunction<String, StatisticsCalObj>() {
                     @Override
-                    public JSONObject map(String stream) throws Exception {
-                        return JSONObject.parseObject(stream);
+                    public void flatMap(String source, Collector<StatisticsCalObj> collector) throws Exception {
+                        StatisticsCalReqInfo statisticsCalReqInfo = JSONObject.parseObject(source, StatisticsCalReqInfo.class);
+                        for (StatisticsCalMeta calMeta : statisticsCalReqInfo.getMetaList()) {
+                            StatisticsCalObj calObj = new StatisticsCalObj();
+                            calObj.setData(statisticsCalReqInfo.getData());
+                            BeanUtils.copyProperties(calObj, calMeta);
+                            collector.collect(calObj);
+                        }
                     }
                 });
-        return sourceStream;
     }
 
-    @Override
-    public StreamSourceType applySource() {
-        return StreamSourceType.KAFKA;
-    }
 }
