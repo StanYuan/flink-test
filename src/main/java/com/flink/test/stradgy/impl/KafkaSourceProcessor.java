@@ -26,21 +26,23 @@ import java.util.List;
  * @Author: dong.yuan
  * @Date: 2022/2/24 15:45
  */
-public class KafkaSourceProcessor implements StreamSourceProcessor<StatisticsCalObj> {
+public class KafkaSourceProcessor implements StreamSourceProcessor<JSONObject> {
 
     @Override
-    public DataStream<StatisticsCalObj> processSource(StreamExecutionEnvironment env, ParameterTool parameterTool) {
+    public DataStream<JSONObject> processSource(StreamExecutionEnvironment env, ParameterTool parameterTool) {
         return env.addSource(new FlinkKafkaConsumer<>(parameterTool.get("kafka.source.topic"), new SimpleStringSchema(), parameterTool.getProperties()))
                 //转换为SMData对象
-                .flatMap(new FlatMapFunction<String, StatisticsCalObj>() {
+                .flatMap(new FlatMapFunction<String, JSONObject>() {
                     @Override
-                    public void flatMap(String source, Collector<StatisticsCalObj> collector) throws Exception {
+                    public void flatMap(String source, Collector<JSONObject> collector) throws Exception {
                         StatisticsCalReqInfo statisticsCalReqInfo = JSONObject.parseObject(source, StatisticsCalReqInfo.class);
                         for (StatisticsCalMeta calMeta : statisticsCalReqInfo.getMetaList()) {
-                            StatisticsCalObj calObj = new StatisticsCalObj();
-                            calObj.setData(statisticsCalReqInfo.getData());
-                            BeanUtils.copyProperties(calObj, calMeta);
-                            collector.collect(calObj);
+                            JSONObject dataObj = JSONObject.parseObject(statisticsCalReqInfo.getData());
+                            dataObj.put("condition", calMeta.getCondition());
+                            dataObj.put("field", calMeta.getField());
+                            dataObj.put("method", calMeta.getMethod());
+                            dataObj.put("frequency",calMeta.getFrequency());
+                            collector.collect(dataObj);
                         }
                     }
                 });
