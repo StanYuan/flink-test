@@ -11,8 +11,9 @@ import java.util.List;
  */
 @Data
 public class StatisticsCalReqInfo {
-
+    //请求数据
     private String data;
 
+    //流量统计规则
     private List<StatisticsCalMeta> metaList;
 }

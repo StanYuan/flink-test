@@ -3,22 +3,28 @@ package com.flink.test.app;
 import com.alibaba.fastjson.JSONObject;
 import com.flink.test.entity.FlowStatistics;
 import com.flink.test.entity.SMData;
-import com.flink.test.entity.StatisticsCalObj;
+import com.flink.test.entity.StatisticsCalMeta;
 import com.flink.test.entity.StatisticsCalReqInfo;
-import com.flink.test.stradgy.StreamSourceProcessor;
+import com.flink.test.sink.MerchantAccSink;
+import com.flink.test.stradgy.StreamReduceProcessor;
+import com.flink.test.stradgy.impl.CalFrequencyTransfer;
 import com.flink.test.stradgy.impl.StreamFunctionRoute;
 import com.flink.test.utils.DateUtil;
+import org.apache.commons.beanutils.BeanUtils;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.RuntimeExecutionMode;
 import org.apache.flink.api.common.functions.AggregateFunction;
-import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.common.functions.ReduceFunction;
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
-import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
+import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.util.Collector;
 import org.apache.http.util.Asserts;
 import org.slf4j.Logger;
@@ -52,15 +58,52 @@ public class RealTimeStatisticsJob {
 
         //配置flink-kafka-connector源
         Asserts.notNull(propertiesMap.get("stream.source.type"), "stream.source.type");
-        StreamSourceProcessor<StatisticsCalObj> sourceProcessor = StreamFunctionRoute.sourceProcessor(propertiesMap.get("stream.source.type"));
+        //交易数据流
+        DataStream<SMData> smDataStream = env.addSource(new FlinkKafkaConsumer<>(parameterTool.get("kafka.source.topic"), new SimpleStringSchema(), parameterTool.getProperties()))
+                //转换为SMData对象
+                .flatMap(new FlatMapFunction<String, SMData>() {
+                    @Override
+                    public void flatMap(String source, Collector<SMData> collector) throws Exception {
+                        logger.info("source:{}", source);
+                        StatisticsCalReqInfo statisticsCalReqInfo = JSONObject.parseObject(source, StatisticsCalReqInfo.class);
+                        SMData smData = JSONObject.parseObject(statisticsCalReqInfo.getData(), SMData.class);
+                        JSONObject reqObj = JSONObject.parseObject(source);
+                        smData.setFlowKey(reqObj.getString(smData.getCondition()));
+                        Date tradeTime = DateUtil.getDateTimeFormat(smData.getTradeTime());
+                        smData.setFlowDate(CalFrequencyTransfer.transferFrequency(smData.getFrequency(), tradeTime));
+                        for (StatisticsCalMeta calMeta : statisticsCalReqInfo.getMetaList()) {
+                            BeanUtils.copyProperties(smData, calMeta);
+                            logger.info("smData:{}", smData);
+                            collector.collect(smData);
+                        }
+                    }
+                });
 
-        //flatmap拆分为多个流
-        DataStream<StatisticsCalObj> sourceStream = sourceProcessor.processSource(env, parameterTool);
-
-        KeyedStream<StatisticsCalObj, String> keyedStream = sourceStream.keyBy(StatisticsCalObj::getCondition);
-
-
-
+        KeyedStream<SMData, String> keyByStream = smDataStream.keyBy(new KeySelector<SMData, String>() {
+            @Override
+            public String getKey(SMData smData) throws Exception {
+                return smData.getFlowKey() + smData.getFlowDate() + smData.getRuleCode();
+            }
+        });
+        DataStream<SMData> reduceStream = keyByStream.reduce(new ReduceFunction<SMData>() {
+            @Override
+            public SMData reduce(SMData t1, SMData t2) throws Exception {
+                StreamReduceProcessor reduceProcessor = StreamFunctionRoute.reduceProcessor(t1.getMethod());
+                if (reduceProcessor == null) {
+                    logger.info("unsupported cal method! method:{}", t1.getMethod());
+                    return null;
+                }
+                JSONObject t1Obj = JSONObject.parseObject(JSONObject.toJSONString(t1));
+                JSONObject t2Obj = JSONObject.parseObject(JSONObject.toJSONString(t2));
+                BigDecimal result = reduceProcessor.reduce(t1Obj.getBigDecimal(t1.getField()), t2Obj.getBigDecimal(t2.getField()));
+                return new SMData(t1.getRuleCode(), t1.getFlowKey(), t1.getFlowDate(), result.toString());
+            }
+        });
+        reduceStream.print();
+        reduceStream.addSink(new MerchantAccSink());
+        env.execute("risk rule cal execute");
+    }
+//    KeyedStream<StatisticsCalObj, String> keyedStream = sourceStream.keyBy();
 //                设置流数据的水印，用于解决数据流的延时和乱序问题，此处设置最大延时时间为2秒
 //                .assignTimestampsAndWatermarks(WatermarkStrategy.<SMData>forBoundedOutOfOrderness(Duration.ofSeconds(1)).withTimestampAssigner(((smData, timestamp) -> smData.getEventTime())));
 
@@ -68,10 +111,8 @@ public class RealTimeStatisticsJob {
 //        SMStreamWithWaterMark.keyBy(SMData::getMerNo).window(TumblingEventTimeWindows.of(Time.seconds(3)))
 //                .aggregate(new SMCountAggFunction(), new smAggResultFunction())
 //                        .print();
-                //.addSink(new SinkToMySQL());
+    //.addSink(new SinkToMySQL());
 
-        env.execute("risk rule cal execute");
-    }
 
     //订单数据聚合算法接口
     private static class SMCountAggFunction implements AggregateFunction<SMData, String, String> {

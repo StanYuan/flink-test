@@ -3,7 +3,6 @@ package com.flink.test.entity;
 import lombok.Data;
 
 import java.io.Serializable;
-import java.util.Date;
 
 /**
  * @version v1.0
@@ -54,4 +53,31 @@ public class SMData implements Serializable {
 
     private Long eventTime;
 
+    private String ruleCode;
+
+    //统计条件
+    private String condition;
+
+    //统计字段
+    private String field;
+
+    //统计方式 累计:SUM 计数：COUNT
+    private String method;
+
+    //统计频率 年，月，日，小时，分钟，秒，历史
+    private String frequency;
+
+    private String flowKey;
+
+    private String flowDate;
+
+    //统计结果
+    private String statisticsResult;
+
+    public SMData(String ruleCode, String condition, String flowDate, String statisticsResult) {
+        this.ruleCode = ruleCode;
+        this.condition = condition;
+        this.flowDate = flowDate;
+        this.statisticsResult = statisticsResult;
+    }
 }

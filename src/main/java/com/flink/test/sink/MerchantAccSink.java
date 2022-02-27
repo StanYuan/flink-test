@@ -1,12 +1,11 @@
 package com.flink.test.sink;
 
+import com.flink.test.entity.SMData;
 import com.flink.test.utils.MD5Util;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 
-import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -19,7 +18,7 @@ import java.sql.ResultSet;
  * @Date: 2022/2/22 14:16
  */
 @Slf4j
-public class MerchantAccSink extends RichSinkFunction<Tuple3<String,String,String>> {
+public class MerchantAccSink extends RichSinkFunction<SMData> {
 
     private PreparedStatement insertPs;
 
@@ -44,23 +43,22 @@ public class MerchantAccSink extends RichSinkFunction<Tuple3<String,String,Strin
     }
 
     @Override
-    public void invoke(Tuple3 value, Context context) throws Exception {
-        String flowNo = MD5Util.getMD5(value.f1.toString()+value.f0.toString()+"SM_LIMIT_DAY_AMT").toUpperCase();
+    public void invoke(SMData smData, Context context) throws Exception {
+        String flowNo = MD5Util.getMD5(smData.getFlowKey() + smData.getFlowDate() + smData.getRuleCode()).toUpperCase();
         selectPs.setString(1, flowNo);
         ResultSet resultSet = selectPs.executeQuery();
-        if(!resultSet.first()){
-            log.info("======= 数据库未查到记录! flow_no:{}, flowDate:{}", flowNo, value.f1);
+        if (!resultSet.first()) {
+            log.info("======= 数据库未查到记录! flow_no:{}, flowDate:{}", flowNo, smData.getFlowDate());
             insertPs.setString(1, flowNo);
-            insertPs.setString(2, value.f0.toString());
-            insertPs.setString(3, value.f1.toString());
-            insertPs.setString(4, "SM_LIMIT_DAY_AMT");
-            insertPs.setString(5, value.f2.toString());
+            insertPs.setString(2, smData.getFlowKey());
+            insertPs.setString(3, smData.getFlowDate());
+            insertPs.setString(4, smData.getRuleCode());
+            insertPs.setString(5, smData.getStatisticsResult());
             insertPs.executeUpdate();
-        }
-        else{
+        } else {
             String statistics_value = resultSet.getString("statistics_value");
-            log.info("======= 数据库查到记录! flow_no:{}, flowDate:{}, statisticsValue:{}", flowNo, value.f1, statistics_value);
-            updatePs.setString(1, value.f2.toString());
+            log.info("======= 数据库查到记录! flow_no:{}, flowDate:{}, statisticsValue:{}", flowNo, smData.getFlowDate(), statistics_value);
+            updatePs.setString(1, smData.getStatisticsResult());
             updatePs.setString(2, flowNo);
             updatePs.executeUpdate();
         }

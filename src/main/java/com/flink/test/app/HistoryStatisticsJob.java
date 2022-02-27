@@ -2,7 +2,6 @@ package com.flink.test.app;
 
 import com.alibaba.fastjson.JSONObject;
 import com.flink.test.entity.SMData;
-import com.flink.test.sink.MerchantAccSink;
 import com.flink.test.utils.DateUtil;
 import org.apache.flink.api.common.RuntimeExecutionMode;
 import org.apache.flink.api.common.functions.MapFunction;
@@ -56,25 +55,22 @@ public class HistoryStatisticsJob {
                         return Tuple3.of(smData.getMerNo(), DateUtil.getDateFormat(tradeDate), smData.getTradeAmt());
                     }
                 });
-        for(int i =0; i< 2; i++){
-            KeyedStream<Tuple3<String, String, String>, String> keyedStream = tuple3DataStream.keyBy(new KeySelector<Tuple3<String, String, String>, String>() {
+        KeyedStream<Tuple3<String, String, String>, String> keyedStream = tuple3DataStream.keyBy(new KeySelector<Tuple3<String, String, String>, String>() {
+            @Override
+            public String getKey(Tuple3<String, String, String> tuple3) throws Exception {
+                // flow_key和flow_date作为key
+                return tuple3.f0 + ":" + tuple3.f1;
+            }
+        });
 
-                @Override
-                public String getKey(Tuple3<String, String, String> tuple3) throws Exception {
-                    // flow_key和flow_date作为key
-                    return tuple3.f0 + ":" + tuple3.f1;
-                }
-            });
-
-            DataStream<Tuple3<String, String, String>> reduceStream = keyedStream.reduce(new ReduceFunction<Tuple3<String, String, String>>() {
-                @Override
-                public Tuple3<String, String, String> reduce(Tuple3<String, String, String> t1, Tuple3<String, String, String> t2) throws Exception {
-                    return Tuple3.of(t1.f0, t1.f1, new BigDecimal(t1.f2).add(new BigDecimal(t2.f2)).toString());
-                }
-            });
-            //reduceStream.addSink(new MerchantAccSink());
-            reduceStream.print();
-        }
+        DataStream<Tuple3<String, String, String>> reduceStream = keyedStream.reduce(new ReduceFunction<Tuple3<String, String, String>>() {
+            @Override
+            public Tuple3<String, String, String> reduce(Tuple3<String, String, String> t1, Tuple3<String, String, String> t2) throws Exception {
+                return Tuple3.of(t1.f0, t1.f1, new BigDecimal(t1.f2).add(new BigDecimal(t2.f2)).toString());
+            }
+        });
+        //reduceStream.addSink(new MerchantAccSink());
+        reduceStream.print();
 //        reduceStream.print();
         env.execute("历史数据分组统计");
     }

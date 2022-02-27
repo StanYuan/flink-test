@@ -1,10 +1,7 @@
 package com.flink.test.stradgy.impl;
 
 import com.alibaba.fastjson.JSONObject;
-import com.flink.test.entity.StatisticsCalMeta;
-import com.flink.test.entity.StatisticsCalObj;
-import com.flink.test.entity.StatisticsCalReqInfo;
-import com.flink.test.entity.StreamSourceType;
+import com.flink.test.entity.*;
 import com.flink.test.stradgy.StreamSourceProcessor;
 import org.apache.commons.beanutils.BeanUtils;
 import org.apache.flink.api.common.functions.FlatMapFunction;
@@ -26,26 +23,20 @@ import java.util.List;
  * @Author: dong.yuan
  * @Date: 2022/2/24 15:45
  */
-public class KafkaSourceProcessor implements StreamSourceProcessor<JSONObject> {
+//public class KafkaSourceProcessor implements StreamSourceProcessor<T> {
+//
+//    @Override
+//    public DataStream<T> processSource(StreamExecutionEnvironment env, ParameterTool parameterTool) {
+//        return env.addSource(new FlinkKafkaConsumer<>(parameterTool.get("kafka.source.topic"), new SimpleStringSchema(), parameterTool.getProperties()))
+//                //转换为SMData对象
+//                .flatMap(new FlatMapFunction<String, T>() {
+//                    @Override
+//                    public void flatMap(String source, Collector<T> collector) throws Exception {
+//                        StatisticsCalReqInfo statisticsCalReqInfo = JSONObject.parseObject(source, StatisticsCalReqInfo.class);
+//                        SMData smData = JSONObject.parseObject(statisticsCalReqInfo.getData(), SMData.class);
+//                        collector.collect(smData);
+//                    }
+//                });
+//    }
 
-    @Override
-    public DataStream<JSONObject> processSource(StreamExecutionEnvironment env, ParameterTool parameterTool) {
-        return env.addSource(new FlinkKafkaConsumer<>(parameterTool.get("kafka.source.topic"), new SimpleStringSchema(), parameterTool.getProperties()))
-                //转换为SMData对象
-                .flatMap(new FlatMapFunction<String, JSONObject>() {
-                    @Override
-                    public void flatMap(String source, Collector<JSONObject> collector) throws Exception {
-                        StatisticsCalReqInfo statisticsCalReqInfo = JSONObject.parseObject(source, StatisticsCalReqInfo.class);
-                        for (StatisticsCalMeta calMeta : statisticsCalReqInfo.getMetaList()) {
-                            JSONObject dataObj = JSONObject.parseObject(statisticsCalReqInfo.getData());
-                            dataObj.put("condition", calMeta.getCondition());
-                            dataObj.put("field", calMeta.getField());
-                            dataObj.put("method", calMeta.getMethod());
-                            dataObj.put("frequency",calMeta.getFrequency());
-                            collector.collect(dataObj);
-                        }
-                    }
-                });
-    }
-
-}
+//}
