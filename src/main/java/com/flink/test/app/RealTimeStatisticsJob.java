@@ -1,31 +1,27 @@
 package com.flink.test.app;
 
+import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.flink.test.entity.FlowStatistics;
 import com.flink.test.entity.SMData;
 import com.flink.test.entity.StatisticsCalMeta;
 import com.flink.test.entity.StatisticsCalReqInfo;
-import com.flink.test.sink.MerchantAccSink;
-import com.flink.test.stradgy.StreamReduceProcessor;
 import com.flink.test.stradgy.impl.CalFrequencyTransfer;
-import com.flink.test.stradgy.impl.StreamFunctionRoute;
 import com.flink.test.utils.DateUtil;
-import org.apache.commons.beanutils.BeanUtils;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.RuntimeExecutionMode;
-import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
-import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.KeyedStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
-import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
+import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.util.Collector;
+import org.apache.flink.util.OutputTag;
 import org.apache.http.util.Asserts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,48 +55,53 @@ public class RealTimeStatisticsJob {
         //配置flink-kafka-connector源
         Asserts.notNull(propertiesMap.get("stream.source.type"), "stream.source.type");
         //交易数据流
-        DataStream<SMData> smDataStream = env.addSource(new FlinkKafkaConsumer<>(parameterTool.get("kafka.source.topic"), new SimpleStringSchema(), parameterTool.getProperties()))
+        DataStream<FlowStatistics> smDataStream = env.addSource(new FlinkKafkaConsumer<>(parameterTool.get("kafka.source.topic"), new SimpleStringSchema(), parameterTool.getProperties()))
                 //转换为SMData对象
-                .flatMap(new FlatMapFunction<String, SMData>() {
+                .flatMap(new FlatMapFunction<String, FlowStatistics>() {
                     @Override
-                    public void flatMap(String source, Collector<SMData> collector) throws Exception {
+                    public void flatMap(String source, Collector<FlowStatistics> collector) throws Exception {
                         logger.info("source:{}", source);
                         StatisticsCalReqInfo statisticsCalReqInfo = JSONObject.parseObject(source, StatisticsCalReqInfo.class);
                         SMData smData = JSONObject.parseObject(statisticsCalReqInfo.getData(), SMData.class);
-                        JSONObject reqObj = JSONObject.parseObject(source);
-                        smData.setFlowKey(reqObj.getString(smData.getCondition()));
+                        JSONObject reqObj = JSONObject.parseObject(statisticsCalReqInfo.getData());
                         Date tradeTime = DateUtil.getDateTimeFormat(smData.getTradeTime());
-                        smData.setFlowDate(CalFrequencyTransfer.transferFrequency(smData.getFrequency(), tradeTime));
                         for (StatisticsCalMeta calMeta : statisticsCalReqInfo.getMetaList()) {
-                            BeanUtils.copyProperties(smData, calMeta);
-                            logger.info("smData:{}", smData);
-                            collector.collect(smData);
+                            String flowKey = reqObj.getString(calMeta.getCondition());
+                            String flowDate = CalFrequencyTransfer.transferFrequency(calMeta.getFrequency(), tradeTime);
+                            //1. key
+                            //2. 统计类型
+                            //2. 计数
+                            //3. fieldValue
+                            FlowStatistics flowStatistics = new FlowStatistics(flowKey + ":" + flowDate + ":" + calMeta.getRuleCode(), calMeta.getMethod(), reqObj.getString(calMeta.getField()));
+                            logger.info("FlowStatistics:{}", JSON.toJSONString(flowStatistics));
+                            collector.collect(flowStatistics);
                         }
                     }
                 });
 
-        KeyedStream<SMData, String> keyByStream = smDataStream.keyBy(new KeySelector<SMData, String>() {
+        OutputTag<Tuple2<String,Integer>> countTag = new OutputTag<Tuple2<String, Integer>>("count"){};
+        OutputTag<Tuple2<String,String>> sumTag = new OutputTag<Tuple2<String, String>>("sum"){};
+
+        SingleOutputStreamOperator<Tuple2<String, Integer>> sideOutputStream = smDataStream.process(new ProcessFunction<FlowStatistics, Tuple2<String, Integer>>() {
             @Override
-            public String getKey(SMData smData) throws Exception {
-                return smData.getFlowKey() + smData.getFlowDate() + smData.getRuleCode();
-            }
-        });
-        DataStream<SMData> reduceStream = keyByStream.reduce(new ReduceFunction<SMData>() {
-            @Override
-            public SMData reduce(SMData t1, SMData t2) throws Exception {
-                StreamReduceProcessor reduceProcessor = StreamFunctionRoute.reduceProcessor(t1.getMethod());
-                if (reduceProcessor == null) {
-                    logger.info("unsupported cal method! method:{}", t1.getMethod());
-                    return null;
+            public void processElement(FlowStatistics flowStatistics, ProcessFunction<FlowStatistics, Tuple2<String, Integer>>.Context context, Collector<Tuple2<String, Integer>> collector) throws Exception {
+                if (flowStatistics.getMethod().equalsIgnoreCase("COUNT")) {
+                    context.output(countTag, Tuple2.of(flowStatistics.getStatisticsKey(), 1));
+                } else {
+                    context.output(sumTag, Tuple2.of(flowStatistics.getStatisticsKey(), flowStatistics.getFieldValue()));
                 }
-                JSONObject t1Obj = JSONObject.parseObject(JSONObject.toJSONString(t1));
-                JSONObject t2Obj = JSONObject.parseObject(JSONObject.toJSONString(t2));
-                BigDecimal result = reduceProcessor.reduce(t1Obj.getBigDecimal(t1.getField()), t2Obj.getBigDecimal(t2.getField()));
-                return new SMData(t1.getRuleCode(), t1.getFlowKey(), t1.getFlowDate(), result.toString());
             }
         });
-        reduceStream.print();
-        reduceStream.addSink(new MerchantAccSink());
+
+        DataStream<Tuple2<String,Integer>> sum = sideOutputStream.getSideOutput(countTag).keyBy(t-> t.f0).sum(1);
+        sum.print();
+        DataStream<Tuple2<String, String>> reduce = sideOutputStream.getSideOutput(sumTag).keyBy(t -> t.f0).reduce(new ReduceFunction<Tuple2<String,String>>() {
+            @Override
+            public Tuple2<String, String> reduce(Tuple2<String, String> tuple1, Tuple2<String, String> tuple2) throws Exception {
+                return Tuple2.of(tuple1.f0, new BigDecimal(tuple1.f1).add(new BigDecimal(tuple2.f1)).toString());
+            }
+        });
+        reduce.print();
         env.execute("risk rule cal execute");
     }
 //    KeyedStream<StatisticsCalObj, String> keyedStream = sourceStream.keyBy();
@@ -115,42 +116,42 @@ public class RealTimeStatisticsJob {
 
 
     //订单数据聚合算法接口
-    private static class SMCountAggFunction implements AggregateFunction<SMData, String, String> {
+//    private static class SMCountAggFunction implements AggregateFunction<SMData, String, String> {
+//
+//        @Override
+//        public String createAccumulator() {
+//            return "0";
+//        }
+//
+//        @Override
+//        public String add(SMData smData, String acc) {
+//            return new BigDecimal(smData.getTradeAmt()).add(new BigDecimal(acc)).toString();
+//        }
+//
+//        @Override
+//        public String getResult(String acc) {
+//            return acc;
+//        }
+//
+//        @Override
+//        public String merge(String acc1, String acc2) {
+//            return new BigDecimal(acc1).add(new BigDecimal(acc2)).toString();
+//        }
+//    }
 
-        @Override
-        public String createAccumulator() {
-            return "0";
-        }
-
-        @Override
-        public String add(SMData smData, String acc) {
-            return new BigDecimal(smData.getTradeAmt()).add(new BigDecimal(acc)).toString();
-        }
-
-        @Override
-        public String getResult(String acc) {
-            return acc;
-        }
-
-        @Override
-        public String merge(String acc1, String acc2) {
-            return new BigDecimal(acc1).add(new BigDecimal(acc2)).toString();
-        }
-    }
-
-    //聚合结果输出格式接口
-    private static class smAggResultFunction implements WindowFunction<String, String, String, TimeWindow> {
-
-        @Override
-        public void apply(String key, TimeWindow timeWindow, Iterable<String> aggregateResult, Collector<String> collector) throws Exception {
-            FlowStatistics flowStatistics = new FlowStatistics();
-            flowStatistics.setFlowKey(key);
-            flowStatistics.setStatisticsValue(aggregateResult.iterator().next());
-            flowStatistics.setRuleCode("SM_LIMIT_DAY_AMT");
-            long timeEnd = timeWindow.getEnd();
-            Date statisticsDate = new Date(timeEnd);
-            flowStatistics.setFlowDate(DateUtil.getDateFormat(statisticsDate, "yyyy-MM-dd"));
-            collector.collect(JSONObject.toJSONString(flowStatistics));
-        }
-    }
+//    //聚合结果输出格式接口
+//    private static class smAggResultFunction implements WindowFunction<String, String, String, TimeWindow> {
+//
+//        @Override
+//        public void apply(String key, TimeWindow timeWindow, Iterable<String> aggregateResult, Collector<String> collector) throws Exception {
+//            FlowStatistics flowStatistics = new FlowStatistics();
+//            flowStatistics.setFlowKey(key);
+//            flowStatistics.setStatisticsValue(aggregateResult.iterator().next());
+//            flowStatistics.setRuleCode("SM_LIMIT_DAY_AMT");
+//            long timeEnd = timeWindow.getEnd();
+//            Date statisticsDate = new Date(timeEnd);
+//            flowStatistics.setFlowDate(DateUtil.getDateFormat(statisticsDate, "yyyy-MM-dd"));
+//            collector.collect(JSONObject.toJSONString(flowStatistics));
+//        }
+//    }
 }

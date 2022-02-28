@@ -13,6 +13,6 @@ import java.math.BigDecimal;
 public class CountReduceProcessor implements StreamReduceProcessor {
     @Override
     public BigDecimal reduce(BigDecimal obj1, BigDecimal obj2) {
-        return BigDecimal.ONE.add(BigDecimal.ONE);
+        return BigDecimal.ONE;
     }
 }

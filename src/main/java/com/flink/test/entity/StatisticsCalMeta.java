@@ -11,6 +11,9 @@ import lombok.Data;
 @Data
 public class StatisticsCalMeta {
 
+    //规则编码
+    private String ruleCode;
+
     //统计条件
     private String condition;
 

@@ -1,5 +1,6 @@
 package com.flink.test.entity;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
 
 /**
@@ -9,14 +10,13 @@ import lombok.Data;
  * @Date: 2022/2/21 15:53
  */
 @Data
+@AllArgsConstructor
 public class FlowStatistics {
 
-    private String flowKey;
+    private String statisticsKey;
 
-    private String flowDate;
+    private String method;
 
-    private String ruleCode;
-
-    private String statisticsValue;
+    private String fieldValue;
 
 }

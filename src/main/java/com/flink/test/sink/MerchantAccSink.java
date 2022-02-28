@@ -53,12 +53,12 @@ public class MerchantAccSink extends RichSinkFunction<SMData> {
             insertPs.setString(2, smData.getFlowKey());
             insertPs.setString(3, smData.getFlowDate());
             insertPs.setString(4, smData.getRuleCode());
-            insertPs.setString(5, smData.getStatisticsResult());
+//            insertPs.setString(5, smData.getStatisticsResult());
             insertPs.executeUpdate();
         } else {
             String statistics_value = resultSet.getString("statistics_value");
             log.info("======= 数据库查到记录! flow_no:{}, flowDate:{}, statisticsValue:{}", flowNo, smData.getFlowDate(), statistics_value);
-            updatePs.setString(1, smData.getStatisticsResult());
+//            updatePs.setString(1, smData.getStatisticsResult());
             updatePs.setString(2, flowNo);
             updatePs.executeUpdate();
         }

@@ -72,12 +72,16 @@ public class SMData implements Serializable {
     private String flowDate;
 
     //统计结果
-    private String statisticsResult;
+    private String fieldValue;
 
-    public SMData(String ruleCode, String condition, String flowDate, String statisticsResult) {
-        this.ruleCode = ruleCode;
-        this.condition = condition;
-        this.flowDate = flowDate;
-        this.statisticsResult = statisticsResult;
-    }
+    private Integer cnt = 1;
+
+//    public SMData(String ruleCode, String condition, String flowDate, String statisticsResult) {
+//        this.ruleCode = ruleCode;
+//        this.condition = condition;
+//        this.flowDate = flowDate;
+//        this.statisticsResult = statisticsResult;
+//    }
+
+
 }

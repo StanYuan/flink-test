@@ -1,11 +1,9 @@
 package com.flink.test.stradgy;
 
-import com.flink.test.entity.StreamSourceType;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
-import java.util.Properties;
 
 /**
  * @version v1.0
